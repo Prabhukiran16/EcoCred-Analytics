@@ -1,4 +1,5 @@
 from datetime import datetime
+from pathlib import Path
 
 from bson import ObjectId
 
@@ -10,6 +11,12 @@ from services.ai_service import analyze_esg_text
 from services.pdf_service import extract_text_from_pdf
 from services.storage_service import save_temp_file
 from services.twilio_service import send_risk_alert_sms
+from services.web_report_service import (
+    discover_company_website,
+    download_pdf_to_temp,
+    estimate_report_year,
+    find_esg_pdf_url,
+)
 from utils.serializers import serialize_doc
 
 
@@ -249,3 +256,62 @@ async def save_analysis(payload: SaveAnalysisRequest):
 
     saved = await esg_reports_collection.find_one({"_id": result.inserted_id})
     return {"message": "Analysis saved", "data": serialize_doc(saved)}
+
+
+@router.post("/fetch-report-from-website")
+async def fetch_report_from_company_website(payload: dict):
+    company = (payload.get("company") or "").strip()
+    if not company:
+        raise HTTPException(status_code=400, detail="company is required")
+
+    website_url = await discover_company_website(company)
+    if not website_url:
+        raise HTTPException(status_code=404, detail="Could not find an official website for this company")
+
+    pdf_url = await find_esg_pdf_url(website_url)
+    if not pdf_url:
+        raise HTTPException(status_code=404, detail="Could not find ESG/Sustainability PDF on the company website")
+
+    temp_path: Path | None = None
+    try:
+        temp_path = await download_pdf_to_temp(pdf_url)
+        report_text = extract_text_from_pdf(str(temp_path))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except Exception:
+        raise HTTPException(status_code=502, detail="Failed to download or parse ESG PDF")
+    finally:
+        if temp_path and temp_path.exists():
+            temp_path.unlink(missing_ok=True)
+
+    if not report_text.strip():
+        raise HTTPException(status_code=422, detail="ESG PDF was found, but text extraction returned empty content")
+
+    analysis = await analyze_esg_text(company, report_text, source_language="en")
+    report_year = estimate_report_year(pdf_url, website_url)
+
+    doc = {
+        "company": company,
+        "report_text": report_text,
+        "file_url": pdf_url,
+        "source_website": website_url,
+        "source_language": "en",
+        "credibility_score": analysis.get("credibility_score", 0),
+        "risk_score": max(0, 100 - analysis.get("credibility_score", 0)),
+        "claims": analysis.get("claims", []),
+        "ai_explanation": analysis.get("ai_explanation", ""),
+        "report_year": report_year,
+        "created_at": datetime.utcnow(),
+    }
+    result = await esg_reports_collection.insert_one(doc)
+    await _persist_analysis(company, analysis)
+
+    saved = await esg_reports_collection.find_one({"_id": result.inserted_id})
+    return {
+        "message": "ESG report fetched from company website and analyzed",
+        "report": serialize_doc(saved),
+        "source": {
+            "company_website": website_url,
+            "pdf_url": pdf_url,
+        },
+    }

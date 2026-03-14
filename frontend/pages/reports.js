@@ -11,6 +11,9 @@ export default function ReportsPage() {
   const [reports, setReports] = useState([]);
   const [company, setCompany] = useState("");
   const [loading, setLoading] = useState(false);
+  const [fetchingFromWebsite, setFetchingFromWebsite] = useState(false);
+  const [fetchStatus, setFetchStatus] = useState("");
+  const [fetchError, setFetchError] = useState("");
 
   const getRiskTone = (score) => {
     if (score <= 30) {
@@ -29,6 +32,27 @@ export default function ReportsPage() {
       setReports(res.data.reports || []);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchFromCompanyWebsite = async () => {
+    const companyName = company.trim();
+    if (!companyName) {
+      setFetchError("Enter a company name to fetch ESG file from its website.");
+      return;
+    }
+
+    setFetchStatus("");
+    setFetchError("");
+    setFetchingFromWebsite(true);
+    try {
+      const res = await api.post("/analysis/fetch-report-from-website", { company: companyName });
+      setFetchStatus(res.data?.message || "ESG report fetched and analyzed.");
+      await loadReports(companyName);
+    } catch (err) {
+      setFetchError(err?.response?.data?.detail || "Could not fetch ESG file from company website.");
+    } finally {
+      setFetchingFromWebsite(false);
     }
   };
 
@@ -56,6 +80,14 @@ export default function ReportsPage() {
           <button className="btn-primary" type="button" onClick={() => loadReports(company)}>
             Search Reports
           </button>
+          <button
+            className="btn-secondary"
+            type="button"
+            onClick={fetchFromCompanyWebsite}
+            disabled={fetchingFromWebsite}
+          >
+            {fetchingFromWebsite ? "Fetching ESG File..." : "Fetch ESG File From Website"}
+          </button>
         </div>
       }
       rightContent={<NewsSidebar news={[]} />}
@@ -66,6 +98,8 @@ export default function ReportsPage() {
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
             This view shows actual analyses saved by EcoCred, including the extracted text, AI summary, score, and claims count.
           </p>
+          {fetchStatus ? <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-300">{fetchStatus}</p> : null}
+          {fetchError ? <p className="mt-2 text-sm text-rose-700 dark:text-rose-300">{fetchError}</p> : null}
         </div>
 
         {loading ? <p className="text-sm text-slate-500 dark:text-slate-400">Loading reports...</p> : null}
@@ -107,6 +141,33 @@ export default function ReportsPage() {
                   <p className="text-xs font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">AI Explanation</p>
                   <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">{report.ai_explanation || "No AI explanation saved."}</p>
                 </div>
+                {report.file_url || report.source_website ? (
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">Source</p>
+                    <div className="mt-1 flex flex-wrap gap-2 text-xs">
+                      {report.file_url ? (
+                        <a
+                          href={report.file_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300"
+                        >
+                          Open Source PDF
+                        </a>
+                      ) : null}
+                      {report.source_website ? (
+                        <a
+                          href={report.source_website}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-full bg-slate-100 px-3 py-1 font-semibold text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200"
+                        >
+                          Company Website
+                        </a>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">Report Text</p>
                   <p className="mt-1 line-clamp-6 text-sm text-slate-600 dark:text-slate-300">{report.report_text || "No report text available."}</p>
