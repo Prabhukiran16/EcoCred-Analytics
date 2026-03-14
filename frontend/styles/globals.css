@@ -1,0 +1,40 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#__next {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background: radial-gradient(circle at 10% 10%, #d2efe6 0%, #eff9f7 40%, #eef6fb 100%);
+  color: #153042;
+}
+
+.card {
+  @apply bg-white/90 backdrop-blur-sm rounded-panel shadow-soft border border-teal-100;
+}
+
+.input {
+  @apply w-full rounded-xl border border-teal-200 bg-white px-4 py-2 text-ecoink outline-none focus:border-ecoblue focus:ring-2 focus:ring-cyan-200;
+}
+
+.btn {
+  @apply rounded-xl px-4 py-2 font-semibold transition;
+}
+
+.btn-primary {
+  @apply btn bg-gradient-to-r from-ecogreen to-ecoblue text-white hover:opacity-95;
+}
+
+.btn-secondary {
+  @apply btn border border-ecoblue/30 text-ecoblue hover:bg-ecoblue/10;
+}
