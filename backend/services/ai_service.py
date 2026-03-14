@@ -7,6 +7,20 @@ import httpx
 from config import settings
 
 
+LANGUAGE_HINTS = {
+    "auto": "auto-detect",
+    "en": "English",
+    "hi": "Hindi",
+    "te": "Telugu",
+    "ta": "Tamil",
+    "bn": "Bengali",
+    "mr": "Marathi",
+    "es": "Spanish",
+    "fr": "French",
+    "de": "German",
+}
+
+
 def _build_local_analysis(company: str, report_text: str) -> dict[str, Any]:
     text = report_text.lower()
     claim_lines = [
@@ -156,10 +170,17 @@ def _parse_sarvam_payload(company: str, payload: dict[str, Any]) -> dict[str, An
     }
 
 
-async def analyze_esg_text(company: str, report_text: str) -> dict[str, Any]:
+async def analyze_esg_text(company: str, report_text: str, source_language: str = "auto") -> dict[str, Any]:
+    normalized_text = report_text
+
+    if source_language and source_language.lower() not in {"", "auto", "en"}:
+        normalized_text = await translate_to_english(report_text, source_language)
+
     # Local analysis path for MVP when external AI is not configured.
     if not settings.sarvam_api_key:
-        return _build_local_analysis(company, report_text)
+        result = _build_local_analysis(company, normalized_text)
+        result["input_language"] = source_language
+        return result
 
     # External AI call with graceful fallback to local parser.
     try:
@@ -167,12 +188,59 @@ async def analyze_esg_text(company: str, report_text: str) -> dict[str, Any]:
             response = await client.post(
                 f"{settings.sarvam_api_base.rstrip('/')}/v1/analyze",
                 headers={"Authorization": f"Bearer {settings.sarvam_api_key}"},
-                json={"company": company, "text": report_text},
+                json={"company": company, "text": normalized_text},
             )
             response.raise_for_status()
             payload = response.json() if response.content else {}
     except Exception:
-        return _build_local_analysis(company, report_text)
+        result = _build_local_analysis(company, normalized_text)
+        result["input_language"] = source_language
+        return result
 
     parsed = _parse_sarvam_payload(company, payload if isinstance(payload, dict) else {})
-    return parsed or _build_local_analysis(company, report_text)
+    result = parsed or _build_local_analysis(company, normalized_text)
+    result["input_language"] = source_language
+    return result
+
+
+async def translate_to_english(text: str, source_language: str = "auto") -> str:
+    if not text.strip():
+        return text
+
+    if source_language.lower() in {"en", "auto", ""}:
+        return text
+
+    if not settings.sarvam_api_key:
+        return text
+
+    source_label = LANGUAGE_HINTS.get(source_language.lower(), source_language)
+    prompt = (
+        "Translate the following sustainability report text to English. "
+        "Preserve numbers, percentages, years, and named entities exactly. "
+        "Return only translated plain text.\n\n"
+        f"Source language: {source_label}\n"
+        f"Text:\n{text}"
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{settings.sarvam_api_base.rstrip('/')}/v1/chat/completions",
+                headers={"Authorization": f"Bearer {settings.sarvam_api_key}"},
+                json={
+                    "model": "sarvam-m",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0,
+                },
+            )
+            response.raise_for_status()
+            payload = response.json() if response.content else {}
+    except Exception:
+        return text
+
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    if not isinstance(choices, list) or not choices:
+        return text
+
+    content = choices[0].get("message", {}).get("content") or choices[0].get("text") or ""
+    return content.strip() or text

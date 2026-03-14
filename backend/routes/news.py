@@ -1,4 +1,5 @@
 from datetime import datetime
+import re
 
 from fastapi import APIRouter, Query
 
@@ -13,12 +14,21 @@ router = APIRouter(prefix="/news", tags=["news"])
 
 @router.get("/company")
 async def get_company_news(company: str = Query(...)):
-    articles = await fetch_company_news(company)
+    query = company.strip()
+    articles = []
+    status = "ok"
+    message = ""
+
+    try:
+        articles = await fetch_company_news(query)
+    except Exception:
+        status = "warning"
+        message = "Live news provider is currently unavailable. Showing cached results if any."
 
     stored_items = []
     for article in articles:
         doc = {
-            "company": company,
+            "company": query,
             "title": article.get("title", ""),
             "description": article.get("description", ""),
             "source": article.get("source", {}).get("name", ""),
@@ -35,11 +45,16 @@ async def get_company_news(company: str = Query(...)):
             stored_items.append(serialize_doc(inserted))
 
     latest = []
-    cursor = news_collection.find({"company": company}).sort("created_at", -1).limit(10)
+    filters = {"company": {"$regex": re.escape(query), "$options": "i"}}
+    cursor = news_collection.find(filters).sort("created_at", -1).limit(10)
     async for item in cursor:
         latest.append(serialize_doc(item))
 
-    return {"company": company, "news": latest, "new_items": stored_items}
+    if not latest and not articles and not message:
+        status = "empty"
+        message = "No recent environmental news found for this company. Try a broader company name."
+
+    return {"company": query, "news": latest, "new_items": stored_items, "status": status, "message": message}
 
 
 @router.post("/save")

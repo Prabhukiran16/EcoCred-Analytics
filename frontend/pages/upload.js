@@ -42,7 +42,12 @@ export default function UploadPage() {
   if (!authed) return null;
 
   return (
-    <Layout headerContent={<p className="text-sm text-slate-600">Upload community sustainability report</p>} rightContent={<NewsSidebar news={[]} />}>
+    <Layout
+      pageTitle="Upload Post"
+      pageSubtitle="Share sustainability experiences, evidence, and product feedback"
+      headerContent={<p className="text-sm text-slate-600">Upload community sustainability report</p>}
+      rightContent={<NewsSidebar news={[]} />}
+    >
       <form className="card mx-auto w-full max-w-2xl space-y-4 p-6" onSubmit={submit}>
         <h2 className="text-xl font-extrabold text-ecoink">Upload Post</h2>
 

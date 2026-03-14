@@ -1,7 +1,8 @@
 from datetime import datetime
+import re
 
 from bson import ObjectId
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 
 from database import comments_collection, community_posts_collection, users_collection
 from models.schemas import CommentRequest, VoteRequest
@@ -51,9 +52,13 @@ async def upload_post(
 
 
 @router.get("/feed")
-async def get_feed(limit: int = 30):
+async def get_feed(limit: int = 30, company: str = Query(default="")):
     posts = []
-    cursor = community_posts_collection.find().sort("created_at", -1).limit(limit)
+    filters = {}
+    if company.strip():
+        filters["company"] = {"$regex": re.escape(company.strip()), "$options": "i"}
+
+    cursor = community_posts_collection.find(filters).sort("created_at", -1).limit(limit)
 
     async for post in cursor:
         username = "anonymous"

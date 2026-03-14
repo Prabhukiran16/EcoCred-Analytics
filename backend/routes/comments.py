@@ -66,9 +66,19 @@ async def get_comments(post_id: str):
     cursor = comments_collection.find({"post_id": post_id}).sort("created_at", 1)
     async for doc in cursor:
         item = serialize_doc(doc)
+        username = item.get("username", "")
+        if not username and item.get("user_id"):
+            try:
+                user = await users_collection.find_one({"_id": ObjectId(item.get("user_id"))})
+                if user:
+                    username = user.get("username", "anonymous")
+            except Exception:
+                username = "anonymous"
+
         items.append({
-            "username": item.get("username", "anonymous"),
-            "comment": item.get("comment", ""),
+            "username": username or "anonymous",
+            "comment": item.get("comment") or item.get("text", ""),
+            "text": item.get("text") or item.get("comment", ""),
             "timestamp": item.get("created_at", ""),
         })
 

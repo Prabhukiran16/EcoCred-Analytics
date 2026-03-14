@@ -14,17 +14,29 @@ body,
 
 body {
   margin: 0;
-  font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-  background: radial-gradient(circle at 10% 10%, #d2efe6 0%, #eff9f7 40%, #eef6fb 100%);
+  font-family: "Manrope", "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #edf7f2;
   color: #153042;
 }
 
+.dark body {
+  background-color: #0d1822;
+  color: #d9e4ef;
+}
+
+h1,
+h2,
+h3 {
+  font-family: "Sora", "Manrope", sans-serif;
+  letter-spacing: -0.015em;
+}
+
 .card {
-  @apply bg-white/90 backdrop-blur-sm rounded-panel shadow-soft border border-teal-100;
+  @apply bg-white/90 backdrop-blur-sm rounded-panel shadow-soft border border-teal-100/70 dark:bg-slate-900/80 dark:border-slate-700;
 }
 
 .input {
-  @apply w-full rounded-xl border border-teal-200 bg-white px-4 py-2 text-ecoink outline-none focus:border-ecoblue focus:ring-2 focus:ring-cyan-200;
+  @apply w-full rounded-xl border border-teal-200 bg-white px-3.5 py-2 text-ecoink outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 dark:border-slate-600 dark:bg-slate-800 dark:text-slate-100 dark:focus:border-emerald-400;
 }
 
 .btn {
@@ -32,9 +44,9 @@ body {
 }
 
 .btn-primary {
-  @apply btn bg-gradient-to-r from-ecogreen to-ecoblue text-white hover:opacity-95;
+  @apply btn bg-emerald-600 text-white hover:bg-emerald-700 active:bg-emerald-800;
 }
 
 .btn-secondary {
-  @apply btn border border-ecoblue/30 text-ecoblue hover:bg-ecoblue/10;
+  @apply btn border border-emerald-200 text-emerald-700 hover:bg-emerald-50 dark:border-slate-500 dark:text-slate-200 dark:hover:bg-slate-700/60;
 }
