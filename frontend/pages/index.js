@@ -505,8 +505,8 @@ export default function DashboardPage() {
   };
 
   const headerContent = (
-    <div className="space-y-2">
-      <div className="grid w-full grid-cols-1 gap-2 md:grid-cols-3">
+    <div className="dashboard-card dark:border-slate-700 dark:bg-slate-900">
+      <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-5">
         <div className="relative">
           <input className="input pr-10" placeholder="Search company name" value={company} onChange={(e) => setCompany(e.target.value)} />
           <button
@@ -541,6 +541,8 @@ export default function DashboardPage() {
         <button className="btn-primary" onClick={search}>
           {loading ? "Analyzing..." : "Run Analysis"}
         </button>
+      </div>
+      <div className="mt-4 max-w-[220px]">
         <input
           className="input"
           type="number"
@@ -558,9 +560,9 @@ export default function DashboardPage() {
 
   return (
     <Layout headerContent={headerContent} rightContent={<NewsSidebar news={news} status={newsStatus} message={newsMessage} />}>
-      <section className="card border-emerald-200 bg-white p-4 shadow-md dark:border-slate-700 dark:bg-slate-900">
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="text-lg font-extrabold text-slate-900 dark:text-slate-100">ESG Greenwashing Audit Dashboard</h2>
+      <section className="space-y-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="dashboard-section-title !mb-0 !border-b-0 !pb-0 dark:text-slate-100">ESG Greenwashing Audit Dashboard</h2>
           <div className="flex items-center gap-2">
             <p className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
               Credibility {analysis?.credibility_score || 0}
@@ -578,88 +580,87 @@ export default function DashboardPage() {
           </div>
         ) : null}
 
-        <div className="mb-4 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3 dark:border-slate-700 dark:bg-slate-800/70">
+        <div className="dashboard-card dark:border-slate-700 dark:bg-slate-900">
           <div className="flex items-center justify-between gap-2">
-            <p className="text-sm font-bold text-slate-900 dark:text-slate-100">Company & Product Overview</p>
+            <p className="dashboard-section-title !mb-0 !flex-1 dark:text-slate-100">Company & Product Overview</p>
             <button className="btn-secondary" type="button" onClick={speakAnalysis}>
               Read AI Summary
             </button>
           </div>
-          <div className="mt-2 grid grid-cols-1 gap-2 text-sm md:grid-cols-2 xl:grid-cols-5">
-            <p className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"><span className="text-slate-500 dark:text-slate-400">Company:</span> <span className="font-semibold">{latestCompanyReport?.company || company || "Not set"}</span></p>
-            <p className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"><span className="text-slate-500 dark:text-slate-400">Product / focus:</span> <span className="font-semibold">{overview.productFocus}</span></p>
-            <p className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"><span className="text-slate-500 dark:text-slate-400">Industry:</span> <span className="font-semibold">{overview.industry}</span></p>
-            <p className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"><span className="text-slate-500 dark:text-slate-400">ESG report year:</span> <span className="font-semibold">{overview.reportYearValue || "Unknown"}</span></p>
-            <p className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"><span className="text-slate-500 dark:text-slate-400">Pages analyzed:</span> <span className="font-semibold">~{overview.estimatedPages}</span></p>
+          <div className="mt-4 grid grid-cols-1 gap-4 text-sm md:grid-cols-2 xl:grid-cols-5">
+            <p className="dashboard-inner dark:border-slate-700 dark:bg-slate-800"><span className="info-label dark:text-slate-400">Company:</span> <span className="info-value dark:text-slate-100"> {latestCompanyReport?.company || company || "Not set"}</span></p>
+            <p className="dashboard-inner dark:border-slate-700 dark:bg-slate-800"><span className="info-label dark:text-slate-400">Product / focus:</span> <span className="info-value dark:text-slate-100"> {overview.productFocus}</span></p>
+            <p className="dashboard-inner dark:border-slate-700 dark:bg-slate-800"><span className="info-label dark:text-slate-400">Industry:</span> <span className="info-value dark:text-slate-100"> {overview.industry}</span></p>
+            <p className="dashboard-inner dark:border-slate-700 dark:bg-slate-800"><span className="info-label dark:text-slate-400">ESG report year:</span> <span className="info-value dark:text-slate-100"> {overview.reportYearValue || "Unknown"}</span></p>
+            <p className="dashboard-inner dark:border-slate-700 dark:bg-slate-800"><span className="info-label dark:text-slate-400">Pages analyzed:</span> <span className="info-value dark:text-slate-100"> ~{overview.estimatedPages}</span></p>
           </div>
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Source of ESG report: {overview.source}</p>
         </div>
 
-        <div className="mb-4 rounded-2xl border border-emerald-100 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
-          <p className="text-sm font-bold text-slate-900 dark:text-slate-100">Overall Greenwashing Risk Score</p>
-          <div className="mt-2 grid grid-cols-1 gap-2 text-sm md:grid-cols-2 xl:grid-cols-5">
-            <p className="rounded-xl bg-emerald-50 px-3 py-2 dark:bg-slate-800">Unsupported claims: <span className="font-bold">{contributingFactors.unsupportedClaims}</span></p>
-            <p className="rounded-xl bg-emerald-50 px-3 py-2 dark:bg-slate-800">Vague language: <span className="font-bold">{contributingFactors.vagueLanguage}</span></p>
-            <p className="rounded-xl bg-emerald-50 px-3 py-2 dark:bg-slate-800">Contradictions: <span className="font-bold">{contributingFactors.contradictoryStatements}</span></p>
-            <p className="rounded-xl bg-emerald-50 px-3 py-2 dark:bg-slate-800">Negative user reports: <span className="font-bold">{contributingFactors.negativeUserReports}</span></p>
-            <p className="rounded-xl bg-emerald-50 px-3 py-2 dark:bg-slate-800">Interpretation: <span className="font-bold">{riskLevel}</span></p>
+        <div className="dashboard-card dark:border-slate-700 dark:bg-slate-900">
+          <p className="dashboard-section-title dark:text-slate-100">Overall Greenwashing Risk Score</p>
+          <div className="mt-4 grid grid-cols-1 gap-4 text-sm md:grid-cols-2 xl:grid-cols-5">
+            <p className="metric-pill dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-300">Unsupported claims: <span className="font-semibold">{contributingFactors.unsupportedClaims}</span></p>
+            <p className="metric-pill dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-300">Vague language: <span className="font-semibold">{contributingFactors.vagueLanguage}</span></p>
+            <p className="metric-pill dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-300">Contradictions: <span className="font-semibold">{contributingFactors.contradictoryStatements}</span></p>
+            <p className="metric-pill dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-300">Negative user reports: <span className="font-semibold">{contributingFactors.negativeUserReports}</span></p>
+            <p className="metric-pill dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-300">Interpretation: <span className="font-semibold">{riskLevel}</span></p>
           </div>
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Risk bands: Low 0-30, Moderate 31-60, High 61-100.</p>
         </div>
 
-        <p className="mb-2 text-sm font-bold text-slate-900 dark:text-slate-100">ESG Graph Highlights and Category Risk</p>
-        <AnalysisCharts credibilityScore={analysis?.credibility_score || 0} claims={claims} history={history} />
+        <div className="dashboard-card dark:border-slate-700 dark:bg-slate-900">
+          <p className="dashboard-section-title dark:text-slate-100">ESG Graph Highlights and Category Risk</p>
+          <AnalysisCharts credibilityScore={analysis?.credibility_score || 0} claims={claims} history={history} />
+        </div>
 
         {smsStatus ? <p className="mt-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">{smsStatus}</p> : null}
 
-        <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900 xl:col-span-2">
-            <h3 className="mb-2 font-bold text-slate-900 dark:text-slate-100">Community, Credibility, Transparency, Comparison</h3>
-            <div className="mb-3 grid grid-cols-2 gap-2 text-sm">
-              <p className="rounded-xl bg-emerald-50 px-3 py-2 dark:bg-slate-800">Reports: <span className="font-bold">{communityInsights.reportsSubmitted}</span></p>
-              <p className="rounded-xl bg-emerald-50 px-3 py-2 dark:bg-slate-800">Upvotes: <span className="font-bold">{communityInsights.upvotes}</span></p>
-              <p className="rounded-xl bg-emerald-50 px-3 py-2 dark:bg-slate-800">Downvotes: <span className="font-bold">{communityInsights.downvotes}</span></p>
-              <p className="rounded-xl bg-emerald-50 px-3 py-2 dark:bg-slate-800">Complaints: <span className="font-bold">{communityInsights.complaints}</span></p>
+        <div className="grid grid-cols-1 gap-6">
+          <div className="dashboard-card dark:border-slate-700 dark:bg-slate-900">
+            <h3 className="dashboard-section-title dark:text-slate-100">Community, Credibility, Transparency, Comparison</h3>
+            <div className="mb-4 grid grid-cols-2 gap-4 text-sm lg:grid-cols-4">
+              <p className="metric-pill dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-300">Reports: <span className="font-semibold">{communityInsights.reportsSubmitted}</span></p>
+              <p className="metric-pill dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-300">Upvotes: <span className="font-semibold">{communityInsights.upvotes}</span></p>
+              <p className="metric-pill dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-300">Downvotes: <span className="font-semibold">{communityInsights.downvotes}</span></p>
+              <p className="metric-pill dark:border-emerald-900/40 dark:bg-emerald-900/20 dark:text-emerald-300">Complaints: <span className="font-semibold">{communityInsights.complaints}</span></p>
             </div>
 
-            <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800">
-              <p className="text-sm font-semibold">ESG Category Risk Breakdown</p>
-              <div className="mt-1 grid grid-cols-3 gap-2 text-xs">
-                {esgBreakdown.map((item) => (
-                  <p key={item.category} className={`rounded-lg border px-2 py-1 ${getRiskTone(item.riskScore).soft}`}>{item.category}: <span className="font-bold">{item.riskScore}</span></p>
-                ))}
+            <div className="grid grid-cols-1 gap-4 xl:grid-cols-4">
+              <div className="dashboard-inner dark:border-slate-700 dark:bg-slate-800">
+                <p className="text-sm font-semibold">ESG Category Risk Breakdown</p>
+                <div className="mt-2 grid grid-cols-3 gap-3 text-xs">
+                  {esgBreakdown.map((item) => (
+                    <p key={item.category} className={`rounded-lg border px-2 py-1 ${getRiskTone(item.riskScore).soft}`}>{item.category}: <span className="font-bold">{item.riskScore}</span></p>
+                  ))}
+                </div>
               </div>
-            </div>
 
-            <div className="mb-3 rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-700 dark:bg-slate-800">
-              <p className="text-sm font-semibold">Claim Credibility Ranking</p>
-              <div className="mt-1 max-h-36 overflow-auto space-y-1 text-xs">
-                {credibilityRanking.length ? credibilityRanking.map((item, idx) => <p key={`${item.text}-${idx}`}>{item.text} - <span className="font-bold">{item.credibility}</span></p>) : <p>No ranking available.</p>}
+              <div className="dashboard-inner dark:border-slate-700 dark:bg-slate-800">
+                <p className="text-sm font-semibold">Claim Credibility Ranking</p>
+                <div className="mt-1 max-h-36 overflow-auto space-y-1 text-xs">
+                  {credibilityRanking.length ? credibilityRanking.map((item, idx) => <p key={`${item.text}-${idx}`}>{item.text} - <span className="font-bold">{item.credibility}</span></p>) : <p>No ranking available.</p>}
+                </div>
               </div>
-            </div>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm dark:border-slate-700 dark:bg-slate-800">
-              <p className="font-semibold">Transparency Score: {transparency}%</p>
-              <p className="text-xs mt-1">Strength: detailed metrics and consistency.</p>
-              <p className="text-xs">Weakness: unsupported claims and low certification detail.</p>
-            </div>
+              <div className="dashboard-inner text-sm dark:border-slate-700 dark:bg-slate-800">
+                <p className="font-semibold">Transparency Score: {transparency}%</p>
+                <p className="text-xs mt-1">Strength: detailed metrics and consistency.</p>
+                <p className="text-xs">Weakness: unsupported claims and low certification detail.</p>
+              </div>
 
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs dark:border-slate-700 dark:bg-slate-800">
-              <p className="font-semibold text-sm">Comparison Ready Metrics</p>
-              <p>Claims Detected: {comparisonMetrics.totalClaims}</p>
-              <p>
-                High Risk Claims: <span className={comparisonMetrics.highRiskClaims > 0 ? "font-bold text-rose-600 dark:text-rose-300" : "font-bold text-emerald-600 dark:text-emerald-300"}>{comparisonMetrics.highRiskClaims}</span>
-              </p>
-              <p>Evidence Supported Claims: {comparisonMetrics.evidenceSupportedClaims}</p>
-              <p>User Complaints: {comparisonMetrics.userComplaints}</p>
-              <p>Greenwashing Risk Score: <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${getRiskTone(comparisonMetrics.greenwashingRiskScore).pill}`}>{comparisonMetrics.greenwashingRiskScore}</span></p>
+              <div className="dashboard-inner text-xs dark:border-slate-700 dark:bg-slate-800">
+                <p className="font-semibold text-sm">Comparison Ready Metrics</p>
+                <p>Claims Detected: {comparisonMetrics.totalClaims}</p>
+                <p>
+                  High Risk Claims: <span className={comparisonMetrics.highRiskClaims > 0 ? "font-bold text-rose-600 dark:text-rose-300" : "font-bold text-emerald-600 dark:text-emerald-300"}>{comparisonMetrics.highRiskClaims}</span>
+                </p>
+                <p>Evidence Supported Claims: {comparisonMetrics.evidenceSupportedClaims}</p>
+                <p>User Complaints: {comparisonMetrics.userComplaints}</p>
+                <p>Greenwashing Risk Score: <span className={`rounded px-1.5 py-0.5 text-[11px] font-semibold ${getRiskTone(comparisonMetrics.greenwashingRiskScore).pill}`}>{comparisonMetrics.greenwashingRiskScore}</span></p>
+              </div>
             </div>
           </div>
-        </div>
-
-        <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-          <h3 className="mb-2 font-bold text-slate-900 dark:text-slate-100">AI Generated Audit Summary</h3>
-          <p className="text-sm text-slate-700 dark:text-slate-300">{auditSummary}</p>
         </div>
 
         {error ? <p className="mt-3 text-sm font-semibold text-red-600">{error}</p> : null}
