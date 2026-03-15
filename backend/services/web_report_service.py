@@ -12,6 +12,28 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 )
 
+KNOWN_COMPANY_WEBSITES = {
+    "apple": "https://www.apple.com/",
+    "microsoft": "https://www.microsoft.com/",
+    "google": "https://about.google/",
+    "alphabet": "https://abc.xyz/",
+    "amazon": "https://www.amazon.com/",
+    "meta": "https://about.meta.com/",
+}
+
+KNOWN_COMPANY_REPORT_SOURCES = {
+    "apple": [
+        "https://images.apple.com/ca/environment/pdf/Apple_Environmental_Progress_Report_2025.pdf",
+        "https://www.apple.com/environment/pdf/Apple_Environmental_Progress_Report_2025.pdf",
+        "https://www.apple.com/environment/",
+    ],
+    "microsoft": [
+        "https://www.microsoft.com/en-us/corporate-responsibility/sustainability/report",
+        "https://www.microsoft.com/en-us/corporate-responsibility/sustainability",
+        "https://www.microsoft.com/en-us/corporate-responsibility",
+    ],
+}
+
 COMMON_ESG_PATHS = [
     "/sustainability",
     "/sustainability/reports",
@@ -25,12 +47,17 @@ COMMON_ESG_PATHS = [
 ]
 
 HREF_RE = re.compile(r'href=["\']([^"\']+)["\']', flags=re.IGNORECASE)
+TAG_RE = re.compile(r"<[^>]+>")
 
 
 def _clean_company_name(company: str) -> str:
     cleaned = re.sub(r"\b(inc|ltd|limited|corp|corporation|plc|llc|co)\b", "", company, flags=re.IGNORECASE)
     cleaned = re.sub(r"[^a-zA-Z0-9\s]", " ", cleaned)
     return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def _company_key(company: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", company.lower())
 
 
 def _extract_links(html: str, base_url: str) -> list[str]:
@@ -42,10 +69,28 @@ def _extract_links(html: str, base_url: str) -> list[str]:
     return links
 
 
+def _base_domain(url: str) -> str:
+    host = urlparse(url).netloc.lower().replace("www.", "")
+    parts = host.split(".")
+    if len(parts) >= 2:
+        return ".".join(parts[-2:])
+    return host
+
+
 def _is_same_domain(url_a: str, url_b: str) -> bool:
     a = urlparse(url_a).netloc.replace("www.", "").lower()
     b = urlparse(url_b).netloc.replace("www.", "").lower()
     return bool(a) and a == b
+
+
+def _is_related_domain(url_a: str, url_b: str) -> bool:
+    a = urlparse(url_a).netloc.lower().replace("www.", "")
+    b = urlparse(url_b).netloc.lower().replace("www.", "")
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    return a.endswith(f".{b}") or b.endswith(f".{a}")
 
 
 def _score_pdf_link(url: str) -> int:
@@ -84,8 +129,67 @@ async def _fetch_text(client: httpx.AsyncClient, url: str) -> str:
     return response.text
 
 
+def _extract_visible_text_from_html(html: str) -> str:
+    text = re.sub(r"<script[\s\S]*?</script>", " ", html, flags=re.IGNORECASE)
+    text = re.sub(r"<style[\s\S]*?</style>", " ", text, flags=re.IGNORECASE)
+    text = TAG_RE.sub(" ", text)
+    text = re.sub(r"&nbsp;|&#160;", " ", text)
+    text = re.sub(r"&amp;", "&", text)
+    text = re.sub(r"&lt;", "<", text)
+    text = re.sub(r"&gt;", ">", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+async def fetch_webpage_text(url: str) -> str:
+    async with httpx.AsyncClient(
+        timeout=30.0,
+        headers={"User-Agent": USER_AGENT},
+        follow_redirects=True,
+    ) as client:
+        html = await _fetch_text(client, url)
+    return _extract_visible_text_from_html(html)
+
+
+async def _search_web_links(client: httpx.AsyncClient, query: str, max_results: int = 40) -> list[str]:
+    try:
+        html = await _fetch_text(client, f"https://duckduckgo.com/html/?q={query}")
+    except Exception:
+        return []
+
+    links = [_unwrap_duckduckgo_url(link) for link in _extract_links(html, "https://duckduckgo.com")]
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for link in links:
+        if not link.startswith("http"):
+            continue
+        host = urlparse(link).netloc.lower()
+        if "duckduckgo.com" in host:
+            continue
+        if link in seen:
+            continue
+        seen.add(link)
+        deduped.append(link)
+        if len(deduped) >= max_results:
+            break
+    return deduped
+
+
+async def _is_url_reachable(client: httpx.AsyncClient, url: str) -> bool:
+    try:
+        response = await client.get(url, follow_redirects=True)
+        return response.status_code < 400
+    except Exception:
+        return False
+
+
 async def discover_company_website(company: str) -> str | None:
     company_name = _clean_company_name(company)
+    key = _company_key(company_name)
+    for known_key, known_url in KNOWN_COMPANY_WEBSITES.items():
+        if known_key == key or known_key in key or key in known_key:
+            return known_url
+
     query = f"{company_name} official website"
 
     async with httpx.AsyncClient(
@@ -94,11 +198,18 @@ async def discover_company_website(company: str) -> str | None:
         follow_redirects=True,
     ) as client:
         try:
-            html = await _fetch_text(client, f"https://duckduckgo.com/html/?q={query}")
-            links = [_unwrap_duckduckgo_url(link) for link in _extract_links(html, "https://duckduckgo.com")]
-            links = [link for link in links if link.startswith("http") and "duckduckgo.com" not in urlparse(link).netloc]
+            links = await _search_web_links(client, query, max_results=30)
             if links:
-                return links[0]
+                token = company_name.split(" ")[0].lower()
+                scored = sorted(
+                    links,
+                    key=lambda link: (
+                        token in urlparse(link).netloc.lower(),
+                        _score_pdf_link(link),
+                    ),
+                    reverse=True,
+                )
+                return scored[0]
         except Exception:
             pass
 
@@ -124,26 +235,57 @@ async def _find_pdf_links_on_page(client: httpx.AsyncClient, page_url: str) -> l
     return [link for link in links if ".pdf" in link.lower()]
 
 
-async def find_esg_pdf_url(company_website: str) -> str | None:
+async def find_esg_pdf_url(company_website: str, company_name: str = "") -> str | None:
     async with httpx.AsyncClient(
         timeout=25.0,
         headers={"User-Agent": USER_AGENT},
         follow_redirects=True,
     ) as client:
+        key = _company_key(company_name) if company_name else ""
+        if key:
+            for known_key, known_links in KNOWN_COMPANY_REPORT_SOURCES.items():
+                if known_key == key or known_key in key or key in known_key:
+                    for link in known_links:
+                        if ".pdf" in link.lower() and await _is_url_reachable(client, link):
+                            return link
+
         candidate_pages: list[str] = [company_website]
         candidate_pages.extend(urljoin(company_website, path) for path in COMMON_ESG_PATHS)
+        root_domain = _base_domain(company_website)
 
         # Crawl homepage links first for likely sustainability/investor sections.
         try:
             home_html = await _fetch_text(client, company_website)
             for link in _extract_links(home_html, company_website):
                 lower = link.lower()
-                if _is_same_domain(link, company_website) and any(
+                if _is_related_domain(link, company_website) and any(
                     key in lower for key in ["sustain", "esg", "investor", "report", "impact", "responsibility"]
                 ):
                     candidate_pages.append(link)
         except Exception:
             pass
+
+        # Search fallback for sites where report links are hidden behind JS or separate investor subdomains.
+        search_queries = [
+            f'site:{root_domain} sustainability report pdf',
+            f'site:{root_domain} esg report pdf',
+        ]
+        if company_name.strip():
+            search_queries.extend(
+                [
+                    f'"{company_name}" sustainability report pdf',
+                    f'"{company_name}" esg report pdf',
+                ]
+            )
+
+        for query in search_queries:
+            for link in await _search_web_links(client, query, max_results=25):
+                lower = link.lower()
+                if ".pdf" in lower:
+                    if root_domain in urlparse(link).netloc.lower() or "cdn" in urlparse(link).netloc.lower():
+                        candidate_pages.append(link)
+                elif any(token in lower for token in ["sustain", "esg", "annual", "investor", "report"]):
+                    candidate_pages.append(link)
 
         seen_pages: set[str] = set()
         pdf_candidates: list[str] = []
@@ -152,13 +294,78 @@ async def find_esg_pdf_url(company_website: str) -> str | None:
             if page in seen_pages:
                 continue
             seen_pages.add(page)
-            pdf_candidates.extend(await _find_pdf_links_on_page(client, page))
+            if ".pdf" in page.lower():
+                pdf_candidates.append(page)
+            else:
+                pdf_candidates.extend(await _find_pdf_links_on_page(client, page))
 
         if not pdf_candidates:
             return None
 
         ranked = sorted(set(pdf_candidates), key=_score_pdf_link, reverse=True)
         return ranked[0]
+
+
+async def find_esg_report_page_url(company_website: str, company_name: str = "") -> str | None:
+    async with httpx.AsyncClient(
+        timeout=25.0,
+        headers={"User-Agent": USER_AGENT},
+        follow_redirects=True,
+    ) as client:
+        key = _company_key(company_name) if company_name else ""
+        if key:
+            for known_key, known_links in KNOWN_COMPANY_REPORT_SOURCES.items():
+                if known_key == key or known_key in key or key in known_key:
+                    for link in known_links:
+                        if ".pdf" not in link.lower() and await _is_url_reachable(client, link):
+                            return link
+
+        root_domain = _base_domain(company_website)
+        queries = [
+            f"site:{root_domain} sustainability report",
+            f"site:{root_domain} esg report",
+            f"site:{root_domain} corporate responsibility report",
+        ]
+        if company_name.strip():
+            queries.extend(
+                [
+                    f'"{company_name}" sustainability report',
+                    f'"{company_name}" esg report',
+                ]
+            )
+
+        candidates: list[str] = []
+        for query in queries:
+            candidates.extend(await _search_web_links(client, query, max_results=20))
+
+        scored: list[tuple[int, str]] = []
+        for link in candidates:
+            lower = link.lower()
+            if ".pdf" in lower:
+                continue
+            if any(block in lower for block in ["learn.microsoft.com", "training", "docs.microsoft.com"]):
+                continue
+            if not _is_related_domain(link, company_website) and root_domain not in urlparse(link).netloc.lower():
+                continue
+            if not any(k in lower for k in ["sustain", "esg", "responsibility", "impact", "report", "environment"]):
+                continue
+
+            score = 0
+            if "sustain" in lower:
+                score += 20
+            if "esg" in lower:
+                score += 20
+            if "report" in lower:
+                score += 10
+            if "responsibility" in lower:
+                score += 8
+            scored.append((score, link))
+
+        if not scored:
+            return None
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return scored[0][1]
 
 
 async def download_pdf_to_temp(pdf_url: str) -> Path:

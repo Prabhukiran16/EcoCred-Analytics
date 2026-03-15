@@ -21,39 +21,155 @@ LANGUAGE_HINTS = {
 }
 
 
-def _build_local_analysis(company: str, report_text: str) -> dict[str, Any]:
-    text = report_text.lower()
-    claim_lines = [
-        line.strip("- ")
-        for line in report_text.splitlines()
-        if any(keyword in line.lower() for keyword in ["claim", "commit", "net-zero", "recycle", "carbon"])
-    ]
+CLAIM_KEYWORDS = [
+    "net zero",
+    "net-zero",
+    "carbon neutral",
+    "carbon-neutral",
+    "sustainab",
+    "renewable",
+    "recycl",
+    "emission",
+    "decarbon",
+    "water positive",
+    "zero waste",
+    "climate",
+    "green",
+]
+
+EVIDENCE_WORDS = [
+    "audited",
+    "verified",
+    "assured",
+    "third-party",
+    "third party",
+    "iso",
+    "gri",
+    "science based targets",
+    "sbt",
+    "baseline",
+]
+
+VAGUE_WORDS = [
+    "eco-friendly",
+    "green initiative",
+    "planet positive",
+    "environmentally responsible",
+    "sustainable future",
+]
+
+
+def _sanitize_model_text(text: str) -> str:
+    cleaned = text or ""
+    cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    cleaned = cleaned.replace("<think>", "").replace("</think>", "")
+    return cleaned.strip()
+
+
+def _clean_report_text(report_text: str) -> str:
+    # Repair common PDF extraction artifacts before sentence parsing.
+    text = report_text.replace("-\n", "").replace("\n", " ")
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _extract_claim_candidates(report_text: str, max_claims: int = 12) -> list[str]:
+    text = _clean_report_text(report_text)
+    if not text:
+        return []
+
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    claims: list[str] = []
+    seen: set[str] = set()
+
+    for sentence in sentences:
+        s = sentence.strip()
+        if len(s) < 40 or len(s) > 320:
+            continue
+
+        lower = s.lower()
+        has_claim_signal = any(k in lower for k in CLAIM_KEYWORDS)
+        has_action_signal = bool(re.search(r"\b(aim|target|commit|reduce|increase|achieve|eliminate|transition|improve)\b", lower))
+        if not (has_claim_signal and has_action_signal):
+            continue
+
+        normalized = re.sub(r"[^a-z0-9]+", " ", lower).strip()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        claims.append(s)
+
+        if len(claims) >= max_claims:
+            break
+
+    return claims
+
+
+def _score_claim_risk(claim_text: str) -> tuple[int, bool, str]:
+    lower = claim_text.lower()
+
+    has_metric = bool(re.search(r"\b\d+(?:\.\d+)?\s?(%|percent|mt|tco2|kg|ton|mwh|gj|kl|m3|million|billion)\b", lower))
+    has_year = bool(re.search(r"\b20\d{2}\b", lower))
+    has_evidence = any(word in lower for word in EVIDENCE_WORDS)
+    future_language = bool(re.search(r"\b(will|target|aim|aspire|by\s+20\d{2})\b", lower))
+    vague_language = any(word in lower for word in VAGUE_WORDS)
+
+    risk_score = 45
+    if future_language:
+        risk_score += 12
+    if vague_language:
+        risk_score += 12
+    if not has_metric:
+        risk_score += 14
+    else:
+        risk_score -= 15
+    if not has_evidence:
+        risk_score += 8
+    else:
+        risk_score -= 8
+    if has_metric and has_year:
+        risk_score -= 6
+
+    risk_score = max(5, min(risk_score, 95))
+
+    explanation_parts: list[str] = []
+    explanation_parts.append("includes measurable metric" if has_metric else "lacks measurable metric")
+    explanation_parts.append("includes time-bound year" if has_year else "no explicit year")
+    explanation_parts.append("contains assurance/evidence markers" if has_evidence else "no assurance/evidence marker")
+    if vague_language:
+        explanation_parts.append("contains vague sustainability language")
+
+    return risk_score, has_evidence or has_metric, "; ".join(explanation_parts)
+
+
+def _build_local_analysis(company: str, report_text: str, strict_claim_extraction: bool = False) -> dict[str, Any]:
+    claim_lines = _extract_claim_candidates(report_text)
 
     if not claim_lines:
+        if strict_claim_extraction:
+            return {
+                "company": company,
+                "credibility_score": 50,
+                "contradiction_detected": False,
+                "claims": [],
+                "ai_explanation": "No extractable sustainability claims were found in the source report text. Risk is set to neutral pending stronger claim statements.",
+            }
+
         claim_lines = [
             f"{company} claims carbon-neutral operations by 2030.",
             f"{company} claims 100% recyclable packaging.",
         ]
 
     claims: list[dict[str, Any]] = []
-    for claim in claim_lines[:5]:
-        lower_claim = claim.lower()
-        has_evidence_words = any(k in text for k in ["audited", "verified", "assured", "third-party", "evidence"])
-        future_language = any(k in lower_claim for k in ["will", "target", "2030", "2040", "aspire"])
-
-        risk_score = 35
-        if future_language:
-            risk_score += 20
-        if not has_evidence_words:
-            risk_score += 20
-        risk_score = min(risk_score, 95)
+    for claim in claim_lines[:10]:
+        risk_score, evidence_present, claim_explanation = _score_claim_risk(claim)
 
         claims.append(
             {
                 "claim_text": claim,
                 "risk_score": risk_score,
-                "evidence_present": has_evidence_words,
-                "ai_explanation": "Risk increases when commitments are forward-looking and not backed by verifiable evidence markers.",
+                "evidence_present": evidence_present,
+                "ai_explanation": claim_explanation,
             }
         )
 
@@ -170,7 +286,12 @@ def _parse_sarvam_payload(company: str, payload: dict[str, Any]) -> dict[str, An
     }
 
 
-async def analyze_esg_text(company: str, report_text: str, source_language: str = "auto") -> dict[str, Any]:
+async def analyze_esg_text(
+    company: str,
+    report_text: str,
+    source_language: str = "auto",
+    strict_claim_extraction: bool = False,
+) -> dict[str, Any]:
     normalized_text = report_text
 
     if source_language and source_language.lower() not in {"", "auto", "en"}:
@@ -178,7 +299,7 @@ async def analyze_esg_text(company: str, report_text: str, source_language: str 
 
     # Local analysis path for MVP when external AI is not configured.
     if not settings.sarvam_api_key:
-        result = _build_local_analysis(company, normalized_text)
+        result = _build_local_analysis(company, normalized_text, strict_claim_extraction=strict_claim_extraction)
         result["input_language"] = source_language
         return result
 
@@ -193,12 +314,12 @@ async def analyze_esg_text(company: str, report_text: str, source_language: str 
             response.raise_for_status()
             payload = response.json() if response.content else {}
     except Exception:
-        result = _build_local_analysis(company, normalized_text)
+        result = _build_local_analysis(company, normalized_text, strict_claim_extraction=strict_claim_extraction)
         result["input_language"] = source_language
         return result
 
     parsed = _parse_sarvam_payload(company, payload if isinstance(payload, dict) else {})
-    result = parsed or _build_local_analysis(company, normalized_text)
+    result = parsed or _build_local_analysis(company, normalized_text, strict_claim_extraction=strict_claim_extraction)
     result["input_language"] = source_language
     return result
 
@@ -243,4 +364,48 @@ async def translate_to_english(text: str, source_language: str = "auto") -> str:
         return text
 
     content = choices[0].get("message", {}).get("content") or choices[0].get("text") or ""
-    return content.strip() or text
+    return _sanitize_model_text(content) or text
+
+
+async def translate_text(text: str, target_language: str, source_language: str = "auto") -> str:
+    if not text.strip():
+        return text
+
+    normalized_target = (target_language or "").strip().lower()
+    if normalized_target in {"", "en", "auto"}:
+        return text
+
+    if not settings.sarvam_api_key:
+        return text
+
+    source_label = LANGUAGE_HINTS.get((source_language or "auto").lower(), source_language or "auto")
+    target_label = LANGUAGE_HINTS.get(normalized_target, normalized_target)
+    prompt = (
+        f"Translate the following text from {source_label} to {target_label}. "
+        "Preserve numbers, percentages, years, named entities, and meaning exactly. "
+        "Return only translated plain text.\n\n"
+        f"Text:\n{text}"
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                f"{settings.sarvam_api_base.rstrip('/')}/v1/chat/completions",
+                headers={"Authorization": f"Bearer {settings.sarvam_api_key}"},
+                json={
+                    "model": "sarvam-m",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0,
+                },
+            )
+            response.raise_for_status()
+            payload = response.json() if response.content else {}
+    except Exception:
+        return text
+
+    choices = payload.get("choices") if isinstance(payload, dict) else None
+    if not isinstance(choices, list) or not choices:
+        return text
+
+    content = choices[0].get("message", {}).get("content") or choices[0].get("text") or ""
+    return _sanitize_model_text(content) or text

@@ -107,3 +107,20 @@ INFO:     127.0.0.1:58777 - "GET /analysis/history?company=tata&years=7 HTTP/1.1
 INFO:     127.0.0.1:53640 - "GET /analysis/company?company=tata&report_text=&source_language=en&report_year=2026 HTTP/1.1" 200 OK
 INFO:     127.0.0.1:59025 - "GET /news/company?company=tata HTTP/1.1" 200 OK
 INFO:     127.0.0.1:51174 - "GET /news/company?company=coca%20cola HTTP/1.1" 200 OK
+INFO:     127.0.0.1:54791 - "POST /analysis/reports/fetch-from-website HTTP/1.1" 405 Method Not Allowed
+INFO:     127.0.0.1:54791 - "POST /analysis/fetch-report-from-website HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:50561 - "GET /analysis/history?company=coca+cola&years=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:62912 - "GET /posts/feed?company=coca+cola HTTP/1.1" 200 OK
+INFO:     127.0.0.1:49379 - "GET /analysis/company?company=coca+cola&report_text=&source_language=en&report_year=2026 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:51178 - "GET /news/company?company=coca+cola HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58366 - "GET /analysis/reports?company=coca+cola HTTP/1.1" 200 OK
+INFO:     127.0.0.1:58366 - "GET /analysis/reports/69b5c5a5adb2795f8c853f2a HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52634 - "GET /posts/feed?company=tata HTTP/1.1" 200 OK
+INFO:     127.0.0.1:50838 - "GET /analysis/history?company=tata&years=7 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:56821 - "GET /analysis/company?company=tata&report_text=&source_language=en&report_year=2026 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57898 - "GET /news/company?company=tata HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57898 - "GET /analysis/reports?company=tata HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57898 - "GET /analysis/reports/69b5c21d3c0cd5ea78a830a6 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57898 - "GET /analysis/reports?company=tata HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53043 - "POST /analysis/fetch-report-from-website HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:65023 - "GET /openapi.json HTTP/1.1" 200 OK

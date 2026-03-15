@@ -6,6 +6,7 @@ import {
   Users,
   UploadCloud,
   Leaf,
+  FileSearch,
   BarChart3,
   HelpCircle,
   MessageCircleQuestion,
@@ -13,8 +14,9 @@ import {
 
 const menu = [
   { label: "Dashboard", href: "/", section: "General", Icon: LayoutDashboard },
-  { label: "Community", href: "/community", section: "General", Icon: Users },
   { label: "ESG Reports", href: "/reports", section: "General", Icon: BarChart3 },
+  { label: "ESG Claim Analysis", href: "/claim-analysis", section: "General", Icon: FileSearch },
+  { label: "Community", href: "/community", section: "General", Icon: Users },
   { label: "Upload", href: "/upload", section: "Tools", Icon: UploadCloud },
   { label: "Help & Support", href: "/help", section: "Tools", Icon: HelpCircle },
 ];

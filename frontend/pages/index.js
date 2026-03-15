@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronDown, ChevronUp, Mic } from "lucide-react";
+import { AlertTriangle, Mic } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import AnalysisCharts from "../components/AnalysisCharts";
@@ -20,14 +20,12 @@ export default function DashboardPage() {
   const [news, setNews] = useState([]);
   const [newsMessage, setNewsMessage] = useState("Search a company to load news.");
   const [newsStatus, setNewsStatus] = useState("idle");
-  const [reportFile, setReportFile] = useState(null);
-  const [reportText, setReportText] = useState("");
+  const [latestCompanyReport, setLatestCompanyReport] = useState(null);
   const [sourceLanguage, setSourceLanguage] = useState("en");
   const [reportYear, setReportYear] = useState(new Date().getFullYear());
   const [error, setError] = useState("");
-  const [isListening, setIsListening] = useState(false);
+  const [isCompanyListening, setIsCompanyListening] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [alertPhone, setAlertPhone] = useState("");
   const [smsStatus, setSmsStatus] = useState("");
 
@@ -75,24 +73,33 @@ export default function DashboardPage() {
   }, [posts, company]);
 
   const overview = useMemo(() => {
-    const combined = `${company} ${product}`.toLowerCase();
+    const reportTextSource = (latestCompanyReport?.report_text || "").trim();
+    const combined = `${company} ${product} ${latestCompanyReport?.company || ""} ${reportTextSource}`.toLowerCase();
     let industry = "General Consumer";
     if (/pack|bottle|plastic|food|beverage/.test(combined)) industry = "Consumer Packaging";
     if (/energy|power|solar|wind|oil|gas/.test(combined)) industry = "Energy";
     if (/tech|software|cloud|ai|data/.test(combined)) industry = "Technology";
     if (/bank|finance|insurance|loan/.test(combined)) industry = "Financial Services";
 
-    const source = reportFile
-      ? `Uploaded PDF: ${reportFile.name}`
-      : reportText.trim()
-      ? "Direct report text / voice input"
-      : "Auto baseline ESG statement";
+    const source = latestCompanyReport?.file_url
+      ? latestCompanyReport.file_url
+      : latestCompanyReport?.source_website
+      ? latestCompanyReport.source_website
+      : "No ESG source file linked";
 
-    const words = reportText.trim() ? reportText.trim().split(/\s+/).length : 0;
+    const words = reportTextSource ? reportTextSource.split(/\s+/).length : 0;
     const estimatedPages = words ? Math.max(1, Math.round(words / 450)) : claims.length ? Math.max(1, Math.ceil(claims.length / 2)) : 1;
 
-    return { industry, source, estimatedPages };
-  }, [company, product, reportFile, reportText, claims]);
+    const primaryClaimText = `${claims[0]?.claim_text || ""}`.toLowerCase();
+    let productFocus = "Not explicitly specified in ESG file";
+    if (/packag|plastic|bottle|recycl/.test(primaryClaimText)) productFocus = "Packaging and recycling initiatives";
+    else if (/energy|renewable|solar|wind|electric/.test(primaryClaimText)) productFocus = "Energy and emissions initiatives";
+    else if (/supply chain|supplier|sourcing/.test(primaryClaimText)) productFocus = "Supply chain and sourcing practices";
+
+    const reportYearValue = latestCompanyReport?.report_year || reportYear;
+
+    return { industry, source, estimatedPages, productFocus, reportYearValue };
+  }, [company, product, claims, latestCompanyReport, reportYear]);
 
   const claimSummary = useMemo(() => {
     const buckets = {
@@ -293,38 +300,75 @@ export default function DashboardPage() {
     setError("");
     setSmsStatus("");
     try {
-      const analysisPromise = reportFile
-        ? (() => {
-            const form = new FormData();
-            form.append("company", company);
-            form.append("report_file", reportFile);
-            form.append("source_language", sourceLanguage);
-            form.append("report_year", `${reportYear}`);
-            return api.post("/analysis/company/upload", form, {
-              headers: { "Content-Type": "multipart/form-data" },
-            });
-          })()
-        : api.get("/analysis/company", {
-            params: {
-              company,
-              report_text: reportText,
-              source_language: sourceLanguage,
-              report_year: reportYear,
-            },
-          });
+      const analysisPromise = api.post("/analysis/fetch-report-from-website", {
+        company,
+        source_language: sourceLanguage,
+        force_refresh: false,
+      });
 
-      const [analysisRes, newsRes, postsRes, historyRes] = await Promise.allSettled([
+      const [analysisRes, latestReportsRes, newsRes, postsRes, historyRes] = await Promise.allSettled([
         analysisPromise,
+        api.get("/analysis/reports", { params: { company, exact: true, limit: 1 } }),
         api.get("/news/company", { params: { company } }),
         api.get("/posts/feed", { params: { company } }),
         api.get("/analysis/history", { params: { company, years: 7 } }),
       ]);
 
-      if (analysisRes.status !== "fulfilled") {
-        throw analysisRes.reason;
+      let analysisData = null;
+      const latestSavedReport = latestReportsRes.status === "fulfilled" ? (latestReportsRes.value.data?.reports || [])[0] || null : null;
+      setLatestCompanyReport(latestSavedReport);
+
+      if (analysisRes.status === "fulfilled") {
+        const fetchedReport = analysisRes.value.data?.report;
+        if (fetchedReport) {
+          setLatestCompanyReport(fetchedReport);
+          analysisData = {
+            company: fetchedReport.company,
+            credibility_score: fetchedReport.credibility_score || 0,
+            risk_score: fetchedReport.risk_score,
+            claims: fetchedReport.claims || [],
+            ai_explanation: fetchedReport.ai_explanation || analysisRes.value.data?.message || "",
+            contradiction_detected: (fetchedReport.claims || []).some((claim) => !claim.evidence_present),
+          };
+        }
       }
 
-      setAnalysis(analysisRes.value.data);
+      if (!analysisData && latestSavedReport) {
+        const latest = latestSavedReport;
+        if (latest) {
+          analysisData = {
+            company: latest.company,
+            credibility_score: latest.credibility_score || 0,
+            risk_score: latest.risk_score,
+            claims: latest.claims || [],
+            ai_explanation: latest.ai_explanation || "",
+            contradiction_detected: (latest.claims || []).some((claim) => !claim.evidence_present),
+          };
+        }
+      }
+
+      if (!analysisData) {
+        throw new Error("Could not load ESG analysis for this company.");
+      }
+
+      if (!["", "auto", "en"].includes((sourceLanguage || "").toLowerCase())) {
+        try {
+          const translated = await api.post("/analysis/translate-content", {
+            target_language: sourceLanguage,
+            ai_explanation: analysisData.ai_explanation || "",
+            claims: analysisData.claims || [],
+          });
+          analysisData = {
+            ...analysisData,
+            ai_explanation: translated.data?.ai_explanation || analysisData.ai_explanation,
+            claims: translated.data?.claims || analysisData.claims,
+          };
+        } catch {
+          // Keep original analysis content if translation service is unavailable.
+        }
+      }
+
+      setAnalysis(analysisData);
 
       if (newsRes.status === "fulfilled") {
         setNews(newsRes.value.data.news || []);
@@ -339,9 +383,9 @@ export default function DashboardPage() {
       setPosts(postsRes.status === "fulfilled" ? postsRes.value.data.posts || [] : []);
       setHistory(historyRes.status === "fulfilled" ? historyRes.value.data.history || [] : []);
 
-      const normalizedRisk = typeof analysisRes.value.data?.risk_score === "number"
-        ? Math.max(0, Math.min(100, analysisRes.value.data.risk_score))
-        : Math.max(0, Math.min(100, 100 - (analysisRes.value.data?.credibility_score || 0)));
+      const normalizedRisk = typeof analysisData?.risk_score === "number"
+        ? Math.max(0, Math.min(100, analysisData.risk_score))
+        : Math.max(0, Math.min(100, 100 - (analysisData?.credibility_score || 0)));
 
       if (normalizedRisk > 50) {
         if (alertPhone.trim()) {
@@ -351,7 +395,7 @@ export default function DashboardPage() {
               company,
               product,
               risk_score: normalizedRisk,
-              summary: analysisRes.value.data?.ai_explanation || "",
+              summary: analysisData?.ai_explanation || "",
             });
             setSmsStatus(smsRes.data?.message || "Risk alert SMS sent");
           } catch (smsErr) {
@@ -367,6 +411,7 @@ export default function DashboardPage() {
       }
     } catch (err) {
       setError(err?.response?.data?.detail || "Analysis failed. Please try again.");
+      setLatestCompanyReport(null);
     } finally {
       setLoading(false);
     }
@@ -384,12 +429,12 @@ export default function DashboardPage() {
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
 
-    recognition.onstart = () => setIsListening(true);
-    recognition.onend = () => setIsListening(false);
-    recognition.onerror = () => setIsListening(false);
+    recognition.onstart = () => setIsCompanyListening(true);
+    recognition.onend = () => setIsCompanyListening(false);
+    recognition.onerror = () => setIsCompanyListening(false);
     recognition.onresult = (event) => {
       const transcript = event?.results?.[0]?.[0]?.transcript || "";
-      setReportText((prev) => (prev ? `${prev} ${transcript}` : transcript));
+      setCompany(transcript.trim());
     };
 
     recognition.start();
@@ -462,7 +507,17 @@ export default function DashboardPage() {
   const headerContent = (
     <div className="space-y-2">
       <div className="grid w-full grid-cols-1 gap-2 md:grid-cols-3">
-        <input className="input" placeholder="Search company name" value={company} onChange={(e) => setCompany(e.target.value)} />
+        <div className="relative">
+          <input className="input pr-10" placeholder="Search company name" value={company} onChange={(e) => setCompany(e.target.value)} />
+          <button
+            className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-600 hover:bg-emerald-50 dark:border-slate-700 dark:bg-slate-900 dark:text-emerald-300"
+            onClick={startVoiceInput}
+            type="button"
+            title={isCompanyListening ? "Listening..." : "Speak company name"}
+          >
+            <Mic className="h-4 w-4" />
+          </button>
+        </div>
         <input className="input" placeholder="Search product name" value={product} onChange={(e) => setProduct(e.target.value)} />
         <select className="input" value={sourceLanguage} onChange={(e) => setSourceLanguage(e.target.value)}>
           <option value="en">English</option>
@@ -476,7 +531,6 @@ export default function DashboardPage() {
           <option value="de">German</option>
           <option value="auto">Auto Detect</option>
         </select>
-        <input type="file" accept=".pdf" className="input text-sm" onChange={(e) => setReportFile(e.target.files?.[0] || null)} />
         <input
           className="input"
           type="tel"
@@ -487,10 +541,6 @@ export default function DashboardPage() {
         <button className="btn-primary" onClick={search}>
           {loading ? "Analyzing..." : "Run Analysis"}
         </button>
-        <button className="btn-secondary inline-flex items-center justify-center gap-2" onClick={startVoiceInput} type="button">
-          <Mic className="h-4 w-4" />
-          {isListening ? "Listening..." : "Voice"}
-        </button>
         <input
           className="input"
           type="number"
@@ -500,19 +550,7 @@ export default function DashboardPage() {
           onChange={(e) => setReportYear(Number(e.target.value || new Date().getFullYear()))}
           placeholder="Year"
         />
-        <button className="btn-secondary inline-flex items-center justify-center gap-2 text-sm" onClick={() => setShowAdvanced((prev) => !prev)} type="button">
-          {showAdvanced ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          Advanced
-        </button>
       </div>
-
-      {showAdvanced ? (
-        <div className="grid grid-cols-1 gap-2 rounded-2xl border border-emerald-100 bg-emerald-50/70 p-3 md:grid-cols-3 dark:border-slate-700 dark:bg-slate-800/80">
-          <div className="rounded-xl border border-emerald-100 bg-white px-3 py-2 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 md:col-span-3">
-            {reportText ? `Voice notes captured: ${reportText.slice(0, 140)}${reportText.length > 140 ? "..." : ""}` : "Voice input text will appear here after capture."}
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 
@@ -548,10 +586,10 @@ export default function DashboardPage() {
             </button>
           </div>
           <div className="mt-2 grid grid-cols-1 gap-2 text-sm md:grid-cols-2 xl:grid-cols-5">
-            <p className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"><span className="text-slate-500 dark:text-slate-400">Company:</span> <span className="font-semibold">{company || "Not set"}</span></p>
-            <p className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"><span className="text-slate-500 dark:text-slate-400">Product:</span> <span className="font-semibold">{product || "Not set"}</span></p>
+            <p className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"><span className="text-slate-500 dark:text-slate-400">Company:</span> <span className="font-semibold">{latestCompanyReport?.company || company || "Not set"}</span></p>
+            <p className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"><span className="text-slate-500 dark:text-slate-400">Product / focus:</span> <span className="font-semibold">{overview.productFocus}</span></p>
             <p className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"><span className="text-slate-500 dark:text-slate-400">Industry:</span> <span className="font-semibold">{overview.industry}</span></p>
-            <p className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"><span className="text-slate-500 dark:text-slate-400">ESG report year:</span> <span className="font-semibold">{reportYear}</span></p>
+            <p className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"><span className="text-slate-500 dark:text-slate-400">ESG report year:</span> <span className="font-semibold">{overview.reportYearValue || "Unknown"}</span></p>
             <p className="rounded-xl bg-white px-3 py-2 dark:bg-slate-900"><span className="text-slate-500 dark:text-slate-400">Pages analyzed:</span> <span className="font-semibold">~{overview.estimatedPages}</span></p>
           </div>
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">Source of ESG report: {overview.source}</p>
@@ -575,84 +613,7 @@ export default function DashboardPage() {
         {smsStatus ? <p className="mt-2 text-sm font-semibold text-emerald-700 dark:text-emerald-300">{smsStatus}</p> : null}
 
         <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-            <h3 className="mb-2 font-bold text-slate-900 dark:text-slate-100">ESG Claim Summary</h3>
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="text-slate-500 dark:text-slate-400">
-                  <th className="pb-1 font-semibold">Claim Type</th>
-                  <th className="pb-1 font-semibold">Count</th>
-                </tr>
-              </thead>
-              <tbody>
-                {claimSummary.map((row) => (
-                  <tr key={row.type} className="border-t border-slate-100 dark:border-slate-800">
-                    <td className="py-1.5">{row.type}</td>
-                    <td className="py-1.5 font-semibold">{row.count}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="mt-2 text-xs font-semibold text-slate-700 dark:text-slate-300">Total ESG Claims Identified: {claims.length}</p>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-            <h3 className="mb-2 font-bold text-slate-900 dark:text-slate-100">Evidence Verification Analysis</h3>
-            <div className="max-h-64 overflow-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="text-slate-500 dark:text-slate-400">
-                    <th className="pb-1 font-semibold">Claim</th>
-                    <th className="pb-1 font-semibold">Evidence</th>
-                    <th className="pb-1 font-semibold">Type</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {evidenceRows.slice(0, 10).map((row, index) => (
-                    <tr key={`${row.claimText}-${index}`} className="border-t border-slate-100 dark:border-slate-800">
-                      <td className="py-1.5">{row.claimText}</td>
-                      <td className="py-1.5 font-semibold">{row.evidenceFound}</td>
-                      <td className="py-1.5">{row.evidenceType}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
-            <h3 className="mb-2 font-bold text-slate-900 dark:text-slate-100">Risky Statements, Contradictions, Buzzwords</h3>
-            <div className="space-y-2">
-              {riskyStatements.length ? (
-                riskyStatements.map((item, idx) => (
-                  <div key={`${item.text}-${idx}`} className={`rounded-xl border px-3 py-2 text-sm ${getRiskTone(item.riskScore).soft}`}>
-                    <p className="font-semibold">{item.text}</p>
-                    <p className="text-xs">Risk score: {item.riskScore}</p>
-                    <p className="text-xs">Reason: {item.reasons.join(", ") || "No details"}</p>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-slate-500 dark:text-slate-400">No risky statements flagged yet.</p>
-              )}
-            </div>
-
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800">
-              <p className="font-semibold">Contradiction detected: {contradictionInsight.detected ? "Yes" : "No"}</p>
-              <p className="text-xs">Topic: {contradictionInsight.topic}</p>
-              <p className="text-xs">Impact: {contradictionInsight.impact}</p>
-            </div>
-
-            <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs dark:border-slate-700 dark:bg-slate-800">
-              <p className="font-semibold text-sm">Vague language detection</p>
-              {buzzwordFindings.length ? (
-                buzzwordFindings.map((item, idx) => <p key={`${item.phrase}-${idx}`}>{item.phrase}: {item.note}</p>)
-              ) : (
-                <p>No major buzzwords flagged.</p>
-              )}
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900 xl:col-span-2">
             <h3 className="mb-2 font-bold text-slate-900 dark:text-slate-100">Community, Credibility, Transparency, Comparison</h3>
             <div className="mb-3 grid grid-cols-2 gap-2 text-sm">
               <p className="rounded-xl bg-emerald-50 px-3 py-2 dark:bg-slate-800">Reports: <span className="font-bold">{communityInsights.reportsSubmitted}</span></p>
@@ -705,9 +666,6 @@ export default function DashboardPage() {
       </section>
 
       <section className="space-y-3">
-        <h2 className="px-1 text-lg font-extrabold text-slate-900 dark:text-slate-100">Community Posts for Selected Company</h2>
-        {!company.trim() ? <p className="px-1 text-sm text-slate-500 dark:text-slate-400">Search a company to load related community posts.</p> : null}
-        {company.trim() && companyPosts.length === 0 ? <p className="px-1 text-sm text-slate-500 dark:text-slate-400">No community posts found for this company yet.</p> : null}
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
           {companyPosts.map((post) => (
             <PostCard

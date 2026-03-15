@@ -10,6 +10,7 @@ export default function ReportsPage() {
   const authed = useAuthGuard();
   const [reports, setReports] = useState([]);
   const [company, setCompany] = useState("");
+  const [alertPhone, setAlertPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [fetchingFromWebsite, setFetchingFromWebsite] = useState(false);
   const [fetchStatus, setFetchStatus] = useState("");
@@ -25,11 +26,17 @@ export default function ReportsPage() {
     return "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300";
   };
 
-  const loadReports = async (companyFilter = "") => {
+  const loadReports = async (companyFilter = "", exact = true) => {
     setLoading(true);
     try {
-      const res = await api.get("/analysis/reports", { params: { company: companyFilter } });
+      const trimmedCompany = companyFilter.trim();
+      const limit = trimmedCompany && exact ? 1 : 24;
+      const res = await api.get("/analysis/reports", { params: { company: companyFilter, exact, limit } });
       setReports(res.data.reports || []);
+      setFetchError("");
+    } catch (err) {
+      setReports([]);
+      setFetchError(err?.response?.data?.detail || "Could not load reports. Check that backend is running on port 8001.");
     } finally {
       setLoading(false);
     }
@@ -46,9 +53,14 @@ export default function ReportsPage() {
     setFetchError("");
     setFetchingFromWebsite(true);
     try {
-      const res = await api.post("/analysis/fetch-report-from-website", { company: companyName });
-      setFetchStatus(res.data?.message || "ESG report fetched and analyzed.");
-      await loadReports(companyName);
+      const res = await api.post("/analysis/fetch-report-from-website", {
+        company: companyName,
+        phone_number: alertPhone.trim(),
+      });
+      const mainMsg = res.data?.message || "ESG report fetched and analyzed.";
+      const smsMsg = res.data?.sms?.message ? ` ${res.data.sms.message}` : "";
+      setFetchStatus(`${mainMsg}${smsMsg}`.trim());
+      await loadReports(companyName, true);
     } catch (err) {
       setFetchError(err?.response?.data?.detail || "Could not fetch ESG file from company website.");
     } finally {
@@ -60,7 +72,7 @@ export default function ReportsPage() {
     if (!authed) return;
     const lastCompany = typeof window !== "undefined" ? localStorage.getItem("ecocred_last_company") || "" : "";
     setCompany(lastCompany);
-    loadReports(lastCompany);
+    loadReports(lastCompany, true);
   }, [authed]);
 
   if (!authed) return null;
@@ -76,6 +88,12 @@ export default function ReportsPage() {
             placeholder="Filter by company"
             value={company}
             onChange={(e) => setCompany(e.target.value)}
+          />
+          <input
+            className="input max-w-xs"
+            placeholder="Alert phone (+91...)"
+            value={alertPhone}
+            onChange={(e) => setAlertPhone(e.target.value)}
           />
           <button className="btn-primary" type="button" onClick={() => loadReports(company)}>
             Search Reports
@@ -175,9 +193,20 @@ export default function ReportsPage() {
               </div>
 
               <div className="mt-4">
-                <Link href={`/reports/${report._id}`} className="btn-secondary inline-flex items-center">
-                  Open Full Report
-                </Link>
+                {report.file_url ? (
+                  <a
+                    href={report.file_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="btn-secondary inline-flex items-center"
+                  >
+                    Open Full Report
+                  </a>
+                ) : (
+                  <Link href={`/reports/${report._id}`} className="btn-secondary inline-flex items-center">
+                    Open Full Report
+                  </Link>
+                )}
               </div>
             </article>
           ))}
