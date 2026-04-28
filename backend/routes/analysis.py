@@ -19,6 +19,7 @@ from services.web_report_service import (
     fetch_webpage_text,
     find_esg_pdf_url,
     find_esg_report_page_url,
+    find_esg_source_for_any_company,
 )
 from utils.serializers import serialize_doc
 
@@ -404,10 +405,20 @@ async def fetch_report_from_company_website(payload: dict):
         }
 
     website_url = await discover_company_website(company)
-    if not website_url:
-        raise HTTPException(status_code=404, detail="Could not find an official website for this company")
 
-    pdf_url = await find_esg_pdf_url(website_url, company_name=company)
+    pdf_url = await find_esg_pdf_url(website_url, company_name=company) if website_url else None
+    page_url = await find_esg_report_page_url(website_url, company_name=company) if website_url else None
+
+    if not pdf_url and not page_url:
+        generic_source = await find_esg_source_for_any_company(company_name=company, company_website=website_url or "")
+        if generic_source:
+            if generic_source.get("type") == "pdf":
+                pdf_url = generic_source.get("url")
+            else:
+                page_url = generic_source.get("url")
+
+    if not pdf_url and not page_url:
+        raise HTTPException(status_code=404, detail="Could not locate an ESG report source (PDF or report page) for this company")
 
     report_text = ""
     source_url = ""
@@ -426,12 +437,9 @@ async def fetch_report_from_company_website(payload: dict):
             if temp_path and temp_path.exists():
                 temp_path.unlink(missing_ok=True)
     else:
-        page_url = await find_esg_report_page_url(website_url, company_name=company)
-        if not page_url:
-            raise HTTPException(status_code=404, detail="Could not find ESG/Sustainability report page on the company website")
         try:
-            report_text = await fetch_webpage_text(page_url)
-            source_url = page_url
+            report_text = await fetch_webpage_text(page_url or "")
+            source_url = page_url or ""
         except Exception:
             raise HTTPException(status_code=502, detail="Failed to fetch ESG report web page")
 
@@ -444,7 +452,6 @@ async def fetch_report_from_company_website(payload: dict):
         source_language=requested_source_language,
         strict_claim_extraction=True,
     )
-    analysis["claims"] = _select_primary_present_claim(analysis.get("claims", []))
     derived_risk, derived_credibility = _derive_scores_from_claims(analysis.get("claims", []))
     analysis["credibility_score"] = derived_credibility
     report_year = estimate_report_year(source_url, website_url)

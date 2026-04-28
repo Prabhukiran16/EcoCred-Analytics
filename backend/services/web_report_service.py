@@ -112,6 +112,32 @@ def _score_pdf_link(url: str) -> int:
     return score
 
 
+def _score_report_page_link(url: str, company_name: str = "", company_website: str = "") -> int:
+    lower = url.lower()
+    score = 0
+
+    if any(token in lower for token in ["sustain", "esg", "responsibility", "impact", "environment"]):
+        score += 20
+    if "report" in lower:
+        score += 10
+    if "annual" in lower:
+        score += 8
+
+    year_match = re.findall(r"20\d{2}", lower)
+    if year_match:
+        score += int(year_match[-1]) - 2000
+
+    if company_name:
+        key = _company_key(_clean_company_name(company_name))
+        if key and key in re.sub(r"[^a-z0-9]", "", lower):
+            score += 18
+
+    if company_website and _is_related_domain(url, company_website):
+        score += 30
+
+    return score
+
+
 def _unwrap_duckduckgo_url(url: str) -> str:
     parsed = urlparse(url)
     if "duckduckgo.com" not in parsed.netloc.lower():
@@ -366,6 +392,69 @@ async def find_esg_report_page_url(company_website: str, company_name: str = "")
 
         scored.sort(key=lambda x: x[0], reverse=True)
         return scored[0][1]
+
+
+async def find_esg_source_for_any_company(company_name: str, company_website: str = "") -> dict | None:
+    cleaned_name = _clean_company_name(company_name)
+    if not cleaned_name:
+        return None
+
+    async with httpx.AsyncClient(
+        timeout=25.0,
+        headers={"User-Agent": USER_AGENT},
+        follow_redirects=True,
+    ) as client:
+        queries = [
+            f'"{cleaned_name}" sustainability report pdf',
+            f'"{cleaned_name}" esg report pdf',
+            f'"{cleaned_name}" annual report sustainability pdf',
+            f'"{cleaned_name}" sustainability report',
+            f'"{cleaned_name}" esg report',
+            f'"{cleaned_name}" corporate responsibility report',
+        ]
+
+        all_links: list[str] = []
+        seen: set[str] = set()
+        for query in queries:
+            for link in await _search_web_links(client, query, max_results=30):
+                if link in seen:
+                    continue
+                seen.add(link)
+                all_links.append(link)
+
+        if not all_links:
+            return None
+
+        pdf_candidates: list[str] = []
+        page_candidates: list[str] = []
+
+        for link in all_links:
+            lower = link.lower()
+            if ".pdf" in lower:
+                if await _is_url_reachable(client, link):
+                    pdf_candidates.append(link)
+                continue
+
+            if any(k in lower for k in ["sustain", "esg", "responsibility", "impact", "environment", "report"]):
+                page_candidates.append(link)
+
+        if pdf_candidates:
+            best_pdf = sorted(
+                set(pdf_candidates),
+                key=lambda u: _score_pdf_link(u) + (30 if company_website and _is_related_domain(u, company_website) else 0),
+                reverse=True,
+            )[0]
+            return {"type": "pdf", "url": best_pdf}
+
+        if page_candidates:
+            best_page = sorted(
+                set(page_candidates),
+                key=lambda u: _score_report_page_link(u, company_name=cleaned_name, company_website=company_website),
+                reverse=True,
+            )[0]
+            return {"type": "page", "url": best_page}
+
+    return None
 
 
 async def download_pdf_to_temp(pdf_url: str) -> Path:

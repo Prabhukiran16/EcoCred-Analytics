@@ -1,5 +1,5 @@
 param(
-    [string]$Host = "127.0.0.1",
+    [string]$HostAddr = "127.0.0.1",
     [int]$Port = 8001
 )
 
@@ -15,5 +15,5 @@ if (-not (Test-Path $venvActivate)) {
 Set-Location $backendDir
 & $venvActivate
 
-Write-Host "Starting backend on http://$Host:$Port" -ForegroundColor Cyan
-uvicorn main:app --reload --host $Host --port $Port
+Write-Host "Starting backend on http://$HostAddr`:$Port" -ForegroundColor Cyan
+uvicorn main:app --reload --host $HostAddr --port $Port
